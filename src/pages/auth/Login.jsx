@@ -12,7 +12,6 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // ✅ Works in CRA & Vite
   const API_BASE =
     (typeof import.meta !== "undefined" &&
       import.meta.env?.VITE_API_BASE_URL) ||
@@ -22,34 +21,35 @@ export default function Login() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setError("");
     setLoading(true);
 
     try {
-      // Firebase login
       const userCredential = await signInWithEmailAndPassword(
         auth,
         email,
         password
       );
-      const token = await userCredential.user.getIdToken();
+      const token = await userCredential.user.getIdToken(true);
 
-      // Send token to backend
-      const res = await axios.get(`${API_BASE}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const { data } = await axios.post(
+        `${API_BASE}/api/auth/login`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-      const user = res.data.user;
+      const user = data.user;
       localStorage.setItem("token", token);
       localStorage.setItem("role", user.role);
+      localStorage.setItem("user", JSON.stringify(user));
 
-      if (user.role === "admin") {
-        navigate("/admin/home");
-      } else {
-        navigate("/dashboard");
-      }
+      navigate(user.role === "admin" ? "/admin/home" : "/dashboard");
     } catch (err) {
-      console.error("Login error:", err);
-      alert("Invalid credentials or unauthorized user");
+      console.error("Login error:", err.response?.data || err.message);
+      setError(
+        err.response?.data?.message ||
+          "Invalid credentials or unauthorized user."
+      );
     } finally {
       setLoading(false);
     }

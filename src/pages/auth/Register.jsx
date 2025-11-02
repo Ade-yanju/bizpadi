@@ -16,7 +16,6 @@ export default function CreateAccount() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // ✅ Works for both CRA & Vite
   const API_BASE =
     (typeof import.meta !== "undefined" &&
       import.meta.env?.VITE_API_BASE_URL) ||
@@ -24,7 +23,6 @@ export default function CreateAccount() {
     process.env.REACT_APP_API_URL ||
     "http://localhost:5000";
 
-  // --- Password Strength Helper ---
   const checkPasswordStrength = (password) => {
     if (password.length < 6) return "Weak";
     if (password.length < 10) return "Medium";
@@ -44,21 +42,19 @@ export default function CreateAccount() {
     try {
       setLoading(true);
 
-      // 1️⃣ Create user in Firebase Auth
+      // ✅ 1. Create user in Firebase
       const userCred = await createUserWithEmailAndPassword(
         auth,
         email,
         password
       );
-
-      // Optionally update display name in Firebase
       await updateProfile(userCred.user, { displayName: name });
 
-      // 2️⃣ Get Firebase ID token
-      const token = await userCred.user.getIdToken();
+      // ✅ 2. Get fresh ID token
+      const token = await userCred.user.getIdToken(true);
 
-      // 3️⃣ Send user details to backend for MongoDB record
-      await axios.post(
+      // ✅ 3. Send user details to backend
+      const { data } = await axios.post(
         `${API_BASE}/api/auth/register`,
         { name, email, contact },
         {
@@ -66,15 +62,15 @@ export default function CreateAccount() {
         }
       );
 
-      // 4️⃣ Save locally for session
+      // ✅ 4. Save locally
       localStorage.setItem("token", token);
-      localStorage.setItem("role", "user");
+      localStorage.setItem("role", data.role || "user");
+      localStorage.setItem("user", JSON.stringify(data.user));
 
-      // 5️⃣ Redirect
+      // ✅ 5. Navigate to dashboard
       navigate("/dashboard");
     } catch (err) {
-      console.error("Registration error:", err);
-
+      console.error("Registration error:", err.response?.data || err.message);
       if (err.code === "auth/email-already-in-use") {
         setError("This email is already registered. Try logging in instead.");
       } else if (err.code === "auth/invalid-email") {
@@ -82,7 +78,10 @@ export default function CreateAccount() {
       } else if (err.code === "auth/weak-password") {
         setError("Your password is too weak.");
       } else {
-        setError("Something went wrong. Please try again.");
+        setError(
+          err.response?.data?.message ||
+            "Something went wrong. Please try again."
+        );
       }
     } finally {
       setLoading(false);
@@ -282,7 +281,6 @@ export default function CreateAccount() {
   );
 }
 
-// Styles
 const styles = {
   label: { display: "block", marginBottom: "0.3rem", fontSize: "0.9rem" },
   input: {
@@ -304,7 +302,6 @@ const styles = {
   },
 };
 
-// Color function for password strength
 const strengthColor = (strength) => {
   switch (strength) {
     case "Weak":
