@@ -8,8 +8,9 @@ export default function Support() {
   const [subject, setSubject] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const token = localStorage.getItem("token");
+  const [modal, setModal] = useState({ show: false, type: "", message: "" });
 
+  const token = localStorage.getItem("token");
   const API_BASE =
     import.meta.env?.VITE_API_BASE_URL ||
     process.env.REACT_APP_API_URL ||
@@ -24,6 +25,12 @@ export default function Support() {
       setTickets(res.data.tickets || []);
     } catch (err) {
       console.error("Error fetching tickets:", err);
+      setModal({
+        show: true,
+        type: "error",
+        message:
+          err.response?.data?.message || "Failed to load support tickets.",
+      });
     } finally {
       setLoading(false);
     }
@@ -36,7 +43,12 @@ export default function Support() {
   /* Create new ticket */
   const createTicket = async (e) => {
     e.preventDefault();
-    if (!subject || !newMessage) return;
+    if (!subject || !newMessage)
+      return setModal({
+        show: true,
+        type: "error",
+        message: "Please fill in both subject and message.",
+      });
     setSending(true);
     try {
       await axios.post(
@@ -47,8 +59,19 @@ export default function Support() {
       setSubject("");
       setNewMessage("");
       fetchTickets();
+      setModal({
+        show: true,
+        type: "success",
+        message: "Support ticket created successfully!",
+      });
     } catch (err) {
       console.error("Error creating ticket:", err);
+      setModal({
+        show: true,
+        type: "error",
+        message:
+          err.response?.data?.message || "Failed to create support ticket.",
+      });
     } finally {
       setSending(false);
     }
@@ -56,7 +79,12 @@ export default function Support() {
 
   /* Reply to ticket */
   const replyToTicket = async (id) => {
-    if (!newMessage) return;
+    if (!newMessage)
+      return setModal({
+        show: true,
+        type: "error",
+        message: "Please type a reply message.",
+      });
     setSending(true);
     try {
       await axios.post(
@@ -66,15 +94,30 @@ export default function Support() {
       );
       setNewMessage("");
       fetchTickets();
+      setModal({
+        show: true,
+        type: "success",
+        message: "Reply sent successfully!",
+      });
     } catch (err) {
       console.error("Error replying:", err);
+      setModal({
+        show: true,
+        type: "error",
+        message:
+          err.response?.data?.message || "Failed to send your reply message.",
+      });
     } finally {
       setSending(false);
     }
   };
 
   if (loading)
-    return <div style={{ color: "#e2e8f0" }}>Loading support tickets...</div>;
+    return (
+      <div style={styles.loading}>
+        <p>Loading support tickets...</p>
+      </div>
+    );
 
   return (
     <div style={styles.page}>
@@ -122,7 +165,9 @@ export default function Support() {
               onClick={() => setSelected(t)}
             >
               <h3>{t.subject}</h3>
-              <p style={{ color: "#94a3b8" }}>{t.message.slice(0, 80)}...</p>
+              <p style={{ color: "#94a3b8" }}>
+                {t.message?.slice(0, 80) || ""}...
+              </p>
               <span style={styles.status}>{t.status}</span>
             </div>
           ))
@@ -131,7 +176,7 @@ export default function Support() {
 
       {/* Selected Ticket */}
       {selected && (
-        <div style={styles.modal}>
+        <div style={styles.modalOverlay}>
           <div style={styles.modalBox}>
             <h3 style={{ color: "#38bdf8" }}>{selected.subject}</h3>
             <div style={styles.thread}>
@@ -170,6 +215,37 @@ export default function Support() {
           </div>
         </div>
       )}
+
+      {/* Modal for error/success */}
+      {modal.show && (
+        <div style={styles.modalOverlay}>
+          <div
+            style={{
+              ...styles.modal,
+              borderColor:
+                modal.type === "error" ? "#ef4444" : "rgba(34,197,94,0.6)",
+            }}
+          >
+            <h3
+              style={{
+                color: modal.type === "error" ? "#ef4444" : "#22c55e",
+                marginBottom: ".5rem",
+              }}
+            >
+              {modal.type === "error" ? "Error" : "Success"}
+            </h3>
+            <p style={{ color: "#e2e8f0", marginBottom: "1rem" }}>
+              {modal.message}
+            </p>
+            <button
+              style={styles.closeBtn}
+              onClick={() => setModal({ show: false, type: "", message: "" })}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -179,6 +255,7 @@ const styles = {
   page: { color: "#e2e8f0", padding: "1rem", fontFamily: "Inter, sans-serif" },
   title: { fontSize: "1.5rem", fontWeight: 800 },
   subtext: { color: "#94a3b8", marginBottom: "1.2rem" },
+  loading: { textAlign: "center", color: "#e2e8f0", padding: "2rem" },
   newTicketForm: {
     background: "#111827",
     padding: "1rem",
@@ -221,7 +298,11 @@ const styles = {
     cursor: "pointer",
     fontWeight: 700,
   },
-  tickets: { display: "grid", gap: ".8rem" },
+  tickets: {
+    display: "grid",
+    gap: ".8rem",
+    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+  },
   ticket: {
     background: "#1e293b",
     borderRadius: "8px",
@@ -230,8 +311,8 @@ const styles = {
     cursor: "pointer",
   },
   status: { fontSize: "0.8rem", color: "#94a3b8" },
-  empty: { color: "#94a3b8" },
-  modal: {
+  empty: { color: "#94a3b8", textAlign: "center" },
+  modalOverlay: {
     position: "fixed",
     top: 0,
     left: 0,
@@ -242,6 +323,7 @@ const styles = {
     justifyContent: "center",
     alignItems: "center",
     zIndex: 100,
+    padding: "1rem",
   },
   modalBox: {
     background: "#111827",
@@ -258,10 +340,30 @@ const styles = {
     margin: "1rem 0",
     maxHeight: "300px",
     overflowY: "auto",
+    wordWrap: "break-word",
   },
   msg: {
     padding: ".6rem .8rem",
     borderRadius: "8px",
-    maxWidth: "70%",
+    maxWidth: "75%",
+  },
+  modal: {
+    backgroundColor: "#1e293b",
+    borderRadius: "10px",
+    padding: "1.5rem",
+    width: "100%",
+    maxWidth: "400px",
+    textAlign: "center",
+    border: "2px solid rgba(255,255,255,0.1)",
+    boxShadow: "0 0 25px rgba(0,0,0,0.4)",
+  },
+  closeBtn: {
+    backgroundColor: "#2563eb",
+    color: "#fff",
+    border: "none",
+    borderRadius: "6px",
+    padding: ".6rem 1.2rem",
+    cursor: "pointer",
+    fontWeight: "600",
   },
 };

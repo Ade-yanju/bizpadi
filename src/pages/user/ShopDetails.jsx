@@ -9,7 +9,7 @@ export default function ShopDetails() {
   const [loading, setLoading] = useState(true);
   const [investAmount, setInvestAmount] = useState("");
   const [investing, setInvesting] = useState(false);
-  const [message, setMessage] = useState("");
+  const [modal, setModal] = useState({ show: false, type: "", message: "" });
 
   const API_BASE =
     (typeof import.meta !== "undefined" &&
@@ -19,6 +19,7 @@ export default function ShopDetails() {
 
   const token = localStorage.getItem("token");
 
+  /* ---------------- Fetch Shop ---------------- */
   useEffect(() => {
     const fetchShop = async () => {
       try {
@@ -29,50 +30,70 @@ export default function ShopDetails() {
         setShop(res.data.shop);
       } catch (err) {
         console.error("Error fetching shop:", err);
-        setMessage("Failed to load shop details.");
+        setModal({
+          show: true,
+          type: "error",
+          message: "Failed to load shop details. Please try again.",
+        });
       } finally {
         setLoading(false);
       }
     };
-
     fetchShop();
   }, [API_BASE, id, token]);
 
+  /* ---------------- Handle Investment ---------------- */
   const handleInvest = async () => {
-    if (!investAmount) return setMessage("Please enter an amount to invest.");
+    if (!investAmount)
+      return setModal({
+        show: true,
+        type: "error",
+        message: "Please enter an amount to invest.",
+      });
 
     if (investAmount < shop.minAmount)
-      return setMessage(
-        `Minimum investment is ₦${shop.minAmount.toLocaleString()}`
-      );
+      return setModal({
+        show: true,
+        type: "error",
+        message: `Minimum investment is ₦${shop.minAmount.toLocaleString()}`,
+      });
 
     if (investAmount > shop.maxAmount)
-      return setMessage(
-        `Maximum investment is ₦${shop.maxAmount.toLocaleString()}`
-      );
+      return setModal({
+        show: true,
+        type: "error",
+        message: `Maximum investment is ₦${shop.maxAmount.toLocaleString()}`,
+      });
 
     try {
       setInvesting(true);
-      setMessage("");
-
       const res = await axios.post(
         `${API_BASE}/api/investments`,
         { shopId: shop._id, amount: Number(investAmount) },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      setMessage(`✅ ${res.data.message || "Investment successful!"}`);
+      setModal({
+        show: true,
+        type: "success",
+        message: res.data.message || "Investment successful ✅",
+      });
       setInvestAmount("");
     } catch (err) {
       console.error("Investment failed:", err);
-      setMessage(
-        err.response?.data?.message || "❌ Failed to complete investment."
-      );
+      setModal({
+        show: true,
+        type: "error",
+        message:
+          err.response?.data?.message ||
+          "❌ Failed to complete investment. Please try again.",
+      });
     } finally {
       setInvesting(false);
     }
   };
 
+  /* ---------------- Loading / Empty States ---------------- */
   if (loading)
     return (
       <div style={styles.loading}>
@@ -83,12 +104,13 @@ export default function ShopDetails() {
   if (!shop)
     return (
       <div style={styles.page}>
-        <p>Shop not found.</p>
+        <p style={{ textAlign: "center" }}>Shop not found.</p>
       </div>
     );
 
   const progress = (shop.filledSlots / shop.totalSlots) * 100 || 0;
 
+  /* ---------------- UI ---------------- */
   return (
     <div style={styles.page}>
       <button onClick={() => navigate("/shops")} style={styles.backBtn}>
@@ -131,7 +153,7 @@ export default function ShopDetails() {
         </p>
       </div>
 
-      {/* Invest section */}
+      {/* Invest Section */}
       <div style={styles.investBox}>
         <h3 style={styles.investTitle}>Invest Now</h3>
         <input
@@ -141,31 +163,63 @@ export default function ShopDetails() {
           placeholder="Enter amount"
           style={styles.input}
         />
-        {message && (
-          <p
-            style={{
-              color: message.startsWith("✅") ? "#22c55e" : "#f87171",
-              fontSize: "0.9rem",
-            }}
-          >
-            {message}
-          </p>
-        )}
         <button
           onClick={handleInvest}
-          style={styles.primaryBtn}
+          style={{
+            ...styles.primaryBtn,
+            opacity: investing || shop.status !== "Active" ? 0.6 : 1,
+            cursor:
+              investing || shop.status !== "Active" ? "not-allowed" : "pointer",
+          }}
           disabled={investing || shop.status !== "Active"}
         >
           {investing ? "Processing..." : "Confirm Investment"}
         </button>
       </div>
+
+      {/* Modal Feedback */}
+      {modal.show && (
+        <div style={styles.modalOverlay}>
+          <div
+            style={{
+              ...styles.modal,
+              borderColor:
+                modal.type === "error" ? "#ef4444" : "rgba(34,197,94,0.6)",
+            }}
+          >
+            <h3
+              style={{
+                color: modal.type === "error" ? "#ef4444" : "#22c55e",
+                marginBottom: ".5rem",
+              }}
+            >
+              {modal.type === "error" ? "Error" : "Success"}
+            </h3>
+            <p style={{ color: "#e2e8f0", marginBottom: "1rem" }}>
+              {modal.message}
+            </p>
+            <button
+              onClick={() => setModal({ show: false, type: "", message: "" })}
+              style={styles.closeBtn}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 /* ---------- Styles ---------- */
 const styles = {
-  page: { color: "#e2e8f0", fontFamily: "Inter, sans-serif", padding: "1rem" },
+  page: {
+    color: "#e2e8f0",
+    fontFamily: "Inter, sans-serif",
+    padding: "1rem",
+    maxWidth: "700px",
+    margin: "auto",
+  },
   loading: {
     display: "flex",
     justifyContent: "center",
@@ -181,11 +235,16 @@ const styles = {
     cursor: "pointer",
     marginBottom: "0.5rem",
   },
-  title: { fontSize: "1.5rem", fontWeight: 800 },
-  desc: { color: "#94a3b8", margin: "0.5rem 0 1rem" },
+  title: {
+    fontSize: "1.5rem",
+    fontWeight: 800,
+    marginBottom: "0.3rem",
+    textAlign: "center",
+  },
+  desc: { color: "#94a3b8", margin: "0.5rem 0 1rem", textAlign: "center" },
   statsGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
     gap: "0.8rem",
     marginBottom: "1rem",
   },
@@ -194,6 +253,7 @@ const styles = {
     border: "1px solid #1f2937",
     padding: "0.8rem",
     borderRadius: "8px",
+    textAlign: "center",
   },
   progressBox: { marginTop: "1rem" },
   progressTrack: {
@@ -211,7 +271,11 @@ const styles = {
     borderRadius: "12px",
     border: "1px solid #1f2937",
   },
-  investTitle: { fontWeight: 700, marginBottom: "0.6rem" },
+  investTitle: {
+    fontWeight: 700,
+    marginBottom: "0.6rem",
+    textAlign: "center",
+  },
   input: {
     width: "100%",
     padding: "0.6rem",
@@ -230,5 +294,37 @@ const styles = {
     borderRadius: "8px",
     fontWeight: 700,
     cursor: "pointer",
+  },
+  modalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 9999,
+    padding: "1rem",
+  },
+  modal: {
+    backgroundColor: "#1e293b",
+    borderRadius: "10px",
+    padding: "1.5rem",
+    width: "100%",
+    maxWidth: "400px",
+    textAlign: "center",
+    border: "2px solid rgba(255,255,255,0.1)",
+    boxShadow: "0 0 25px rgba(0,0,0,0.4)",
+  },
+  closeBtn: {
+    backgroundColor: "#2563eb",
+    color: "#fff",
+    border: "none",
+    borderRadius: "6px",
+    padding: ".6rem 1.2rem",
+    cursor: "pointer",
+    fontWeight: "600",
   },
 };

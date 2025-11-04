@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 
-export default function Profile() {
+export default function Profile({ onProfileUpdate }) {
   const [editing, setEditing] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -21,8 +21,7 @@ export default function Profile() {
     confirm: "",
   });
 
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [modal, setModal] = useState({ show: false, type: "", message: "" });
 
   const token = localStorage.getItem("token");
   const API_BASE =
@@ -46,9 +45,17 @@ export default function Profile() {
           kycStatus: u.kycStatus || "Pending",
           emailVerified: u.emailVerified || false,
         });
+
+        // keep name globally for navbar/dashboard
+        localStorage.setItem("userName", u.name || "");
+        if (onProfileUpdate) onProfileUpdate(u.name || "");
       } catch (err) {
         console.error("Error fetching profile:", err);
-        setError("Failed to load profile data");
+        setModal({
+          show: true,
+          type: "error",
+          message: "Failed to load profile data.",
+        });
       } finally {
         setLoading(false);
       }
@@ -60,8 +67,6 @@ export default function Profile() {
   /* ------------------ Save Profile Updates ------------------ */
   const saveProfile = async () => {
     try {
-      setMessage("");
-      setError("");
       const res = await axios.put(
         `${API_BASE}/api/auth/profile`,
         {
@@ -70,28 +75,43 @@ export default function Profile() {
         },
         { headers }
       );
-      setMessage(res.data.message || "✅ Profile updated successfully!");
+
       setEditing(false);
+      setModal({
+        show: true,
+        type: "success",
+        message: res.data.message || "Profile updated successfully ✅",
+      });
+
+      // instantly reflect name across dashboard
+      localStorage.setItem("userName", profile.fullName);
+      if (onProfileUpdate) onProfileUpdate(profile.fullName);
     } catch (err) {
       console.error("Profile update error:", err);
-      setError(err.response?.data?.message || "❌ Failed to update profile");
-    } finally {
-      setTimeout(() => {
-        setMessage("");
-        setError("");
-      }, 2500);
+      setModal({
+        show: true,
+        type: "error",
+        message:
+          err.response?.data?.message || "Failed to update profile. Try again.",
+      });
     }
   };
 
   /* ------------------ Update Password ------------------ */
   const savePassword = async () => {
     if (!passwordForm.current || !passwordForm.newPass) {
-      setError("❌ Password fields are required.");
-      return;
+      return setModal({
+        show: true,
+        type: "error",
+        message: "Password fields are required.",
+      });
     }
     if (passwordForm.newPass !== passwordForm.confirm) {
-      setError("❌ New password mismatch.");
-      return;
+      return setModal({
+        show: true,
+        type: "error",
+        message: "New passwords do not match.",
+      });
     }
 
     try {
@@ -103,17 +123,22 @@ export default function Profile() {
         },
         { headers }
       );
-      setMessage("✅ Password updated successfully!");
       setPasswordForm({ current: "", newPass: "", confirm: "" });
       setChangingPassword(false);
+      setModal({
+        show: true,
+        type: "success",
+        message: "Password updated successfully ✅",
+      });
     } catch (err) {
       console.error("Password update error:", err);
-      setError(err.response?.data?.message || "❌ Failed to update password");
-    } finally {
-      setTimeout(() => {
-        setMessage("");
-        setError("");
-      }, 2500);
+      setModal({
+        show: true,
+        type: "error",
+        message:
+          err.response?.data?.message ||
+          "Failed to update password. Try again.",
+      });
     }
   };
 
@@ -129,14 +154,6 @@ export default function Profile() {
     <div style={styles.page}>
       <h2 style={styles.title}>My Profile</h2>
       <p style={styles.sub}>Manage your account and security settings</p>
-
-      {/* Alerts */}
-      {message && (
-        <div style={{ ...styles.alert, background: "#065f46" }}>{message}</div>
-      )}
-      {error && (
-        <div style={{ ...styles.alert, background: "#7f1d1d" }}>{error}</div>
-      )}
 
       {/* Profile Info */}
       <div style={styles.card}>
@@ -289,6 +306,36 @@ export default function Profile() {
           </button>
         )}
       </div>
+
+      {/* Modal Feedback */}
+      {modal.show && (
+        <div style={styles.modalOverlay}>
+          <div
+            style={{
+              ...styles.modal,
+              borderColor:
+                modal.type === "error" ? "#ef4444" : "rgba(34,197,94,0.6)",
+            }}
+          >
+            <h3
+              style={{
+                color: modal.type === "error" ? "#ef4444" : "#22c55e",
+              }}
+            >
+              {modal.type === "error" ? "Error" : "Success"}
+            </h3>
+            <p style={{ color: "#e2e8f0", marginBottom: "1rem" }}>
+              {modal.message}
+            </p>
+            <button
+              onClick={() => setModal({ show: false, type: "", message: "" })}
+              style={styles.closeBtn}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -298,20 +345,18 @@ const styles = {
   page: {
     color: "#e2e8f0",
     fontFamily: "Inter, sans-serif",
-    maxWidth: 550,
+    maxWidth: "600px",
     margin: "auto",
     padding: "1rem",
+    width: "100%",
   },
-  title: { fontSize: "1.6rem", fontWeight: 800, marginBottom: ".3rem" },
-  sub: { color: "#94a3b8", marginBottom: "1rem" },
-  alert: {
-    color: "#fff",
-    padding: ".65rem",
-    borderRadius: "8px",
-    marginBottom: "1rem",
+  title: {
+    fontSize: "1.6rem",
+    fontWeight: 800,
+    marginBottom: ".3rem",
     textAlign: "center",
-    fontWeight: 600,
   },
+  sub: { color: "#94a3b8", marginBottom: "1rem", textAlign: "center" },
   card: {
     backgroundColor: "#111827",
     padding: "1.2rem",
@@ -323,6 +368,7 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: "1rem",
+    flexWrap: "wrap",
     marginBottom: "1.2rem",
   },
   avatar: {
@@ -357,7 +403,12 @@ const styles = {
   disabledInput: { opacity: 0.5, cursor: "not-allowed" },
   statusGood: { color: "#22c55e", marginTop: "-.7rem", marginBottom: ".7rem" },
   statusBad: { color: "#ef4444", marginTop: "-.7rem", marginBottom: ".7rem" },
-  btnRow: { display: "flex", gap: ".6rem" },
+  btnRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: ".6rem",
+    justifyContent: "center",
+  },
   primaryBtn: {
     flex: 1,
     padding: ".75rem",
@@ -367,6 +418,7 @@ const styles = {
     fontWeight: 700,
     cursor: "pointer",
     color: "#fff",
+    minWidth: "130px",
   },
   secondaryBtn: {
     flex: 1,
@@ -377,6 +429,40 @@ const styles = {
     cursor: "pointer",
     backgroundColor: "transparent",
     color: "#e2e8f0",
+    minWidth: "130px",
   },
   cardTitle: { fontSize: "1.05rem", fontWeight: 700, marginBottom: ".8rem" },
+
+  modalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 9999,
+    padding: "1rem",
+  },
+  modal: {
+    backgroundColor: "#1e293b",
+    borderRadius: "10px",
+    padding: "1.5rem",
+    width: "100%",
+    maxWidth: "400px",
+    textAlign: "center",
+    border: "2px solid rgba(255,255,255,0.1)",
+    boxShadow: "0 0 25px rgba(0,0,0,0.4)",
+  },
+  closeBtn: {
+    backgroundColor: "#2563eb",
+    color: "#fff",
+    border: "none",
+    borderRadius: "6px",
+    padding: ".6rem 1.2rem",
+    cursor: "pointer",
+    fontWeight: "600",
+  },
 };

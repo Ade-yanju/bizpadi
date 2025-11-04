@@ -5,7 +5,6 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
 export default function UserDashboard() {
   const navigate = useNavigate();
-
   const [user, setUser] = useState(null);
   const [wallet, setWallet] = useState(null);
   const [investments, setInvestments] = useState([]);
@@ -13,6 +12,7 @@ export default function UserDashboard() {
   const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(true);
   const [maintenanceMsg, setMaintenanceMsg] = useState("");
+  const [modal, setModal] = useState({ show: false, type: "", message: "" });
 
   const API_BASE =
     import.meta.env?.VITE_API_BASE_URL ||
@@ -22,6 +22,7 @@ export default function UserDashboard() {
   const token = localStorage.getItem("token");
   const headers = { Authorization: `Bearer ${token}` };
 
+  /* ------------------ FETCH ALL DASHBOARD DATA ------------------ */
   const fetchAll = async () => {
     try {
       setLoading(true);
@@ -34,10 +35,14 @@ export default function UserDashboard() {
           axios.get(`${API_BASE}/api/admin/settings/system`, { headers }),
         ]);
 
-      setUser(userRes.data.user);
+      const fetchedUser = userRes.data.user;
+      setUser(fetchedUser);
       setWallet(walletRes.data.wallet);
       setInvestments(investRes.data.investments || []);
       setTransactions(txRes.data.transactions || []);
+
+      // save user name globally to sync with profile updates
+      if (fetchedUser?.name) localStorage.setItem("userName", fetchedUser.name);
 
       const settingsObj = {};
       settingsRes.data.forEach((s) => (settingsObj[s.key] = s.value));
@@ -54,6 +59,14 @@ export default function UserDashboard() {
       if (err.response?.status === 401) {
         localStorage.clear();
         navigate("/auth/login");
+      } else {
+        setModal({
+          show: true,
+          type: "error",
+          message:
+            err.response?.data?.message ||
+            "Failed to load dashboard data. Please try again.",
+        });
       }
     } finally {
       setLoading(false);
@@ -62,10 +75,24 @@ export default function UserDashboard() {
 
   useEffect(() => {
     fetchAll();
+
+    // Auto-refresh every 30s
     const interval = setInterval(fetchAll, 30000);
-    return () => clearInterval(interval);
+
+    // Live update when name changes in Profile
+    const handleNameChange = () => {
+      const newName = localStorage.getItem("userName");
+      setUser((prev) => ({ ...prev, name: newName }));
+    };
+    window.addEventListener("storage", handleNameChange);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("storage", handleNameChange);
+    };
   }, [token]);
 
+  /* ------------------ COMPUTED METRICS ------------------ */
   const totalPortfolioValue = useMemo(
     () => investments.reduce((sum, i) => sum + (i.currentValue || 0), 0),
     [investments]
@@ -83,6 +110,7 @@ export default function UserDashboard() {
 
   const COLORS = ["#38bdf8", "#22c55e", "#f97316", "#eab308", "#a855f7"];
 
+  /* ------------------ UI ------------------ */
   if (loading)
     return (
       <div style={styles.loadingPage}>
@@ -136,7 +164,7 @@ export default function UserDashboard() {
         </div>
       </div>
 
-      {/* Actions */}
+      {/* Quick Actions */}
       <div style={styles.actionRow}>
         <button style={styles.primaryBtn} onClick={() => navigate("/deposit")}>
           💳 Deposit
@@ -152,47 +180,50 @@ export default function UserDashboard() {
         </button>
       </div>
 
-      {/* Layout Split */}
+      {/* Grid Layout */}
       <div style={styles.dashboardGrid}>
-        {/* Investments */}
+        {/* Investments List */}
         <div style={styles.card}>
           <h3 style={styles.cardTitle}>My Investments</h3>
           {investments.length > 0 ? (
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Shop</th>
-                  <th style={styles.th}>Shares</th>
-                  <th style={styles.th}>Value</th>
-                  <th style={styles.th}>Profit/Loss</th>
-                </tr>
-              </thead>
-              <tbody>
-                {investments.map((inv) => (
-                  <tr key={inv._id}>
-                    <td style={styles.td}>{inv.shopName}</td>
-                    <td style={styles.td}>{inv.shares}</td>
-                    <td style={styles.td}>
-                      ₦{(inv.currentValue || 0).toLocaleString()}
-                    </td>
-                    <td
-                      style={{
-                        ...styles.td,
-                        color:
-                          inv.profit && inv.profit >= 0 ? "#22c55e" : "#ef4444",
-                      }}
-                    >
-                      {inv.profit >= 0 ? "+" : "-"}₦
-                      {Math.abs(inv.profit || 0).toFixed(2)}
-                    </td>
+            <div style={{ overflowX: "auto" }}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Shop</th>
+                    <th style={styles.th}>Shares</th>
+                    <th style={styles.th}>Value</th>
+                    <th style={styles.th}>Profit/Loss</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {investments.map((inv) => (
+                    <tr key={inv._id}>
+                      <td style={styles.td}>{inv.shopName}</td>
+                      <td style={styles.td}>{inv.shares}</td>
+                      <td style={styles.td}>
+                        ₦{(inv.currentValue || 0).toLocaleString()}
+                      </td>
+                      <td
+                        style={{
+                          ...styles.td,
+                          color:
+                            inv.profit && inv.profit >= 0
+                              ? "#22c55e"
+                              : "#ef4444",
+                        }}
+                      >
+                        {inv.profit >= 0 ? "+" : "-"}₦
+                        {Math.abs(inv.profit || 0).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <p style={styles.emptyText}>No active investments yet.</p>
           )}
-
           <button
             style={styles.linkBtn}
             onClick={() => navigate("/investments")}
@@ -254,6 +285,37 @@ export default function UserDashboard() {
           View All →
         </button>
       </div>
+
+      {/* Modal for Errors */}
+      {modal.show && (
+        <div style={styles.modalOverlay}>
+          <div
+            style={{
+              ...styles.modal,
+              borderColor:
+                modal.type === "error" ? "#ef4444" : "rgba(34,197,94,0.6)",
+            }}
+          >
+            <h3
+              style={{
+                color: modal.type === "error" ? "#ef4444" : "#22c55e",
+                marginBottom: ".5rem",
+              }}
+            >
+              {modal.type === "error" ? "Error" : "Notice"}
+            </h3>
+            <p style={{ color: "#e2e8f0", marginBottom: "1rem" }}>
+              {modal.message}
+            </p>
+            <button
+              onClick={() => setModal({ show: false, type: "", message: "" })}
+              style={styles.closeBtn}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -266,16 +328,10 @@ const styles = {
     padding: "1.5rem",
     maxWidth: "1200px",
     margin: "auto",
+    width: "100%",
   },
-  headerBox: {
-    textAlign: "center",
-    marginBottom: "1.5rem",
-  },
-  welcome: {
-    fontSize: "1.8rem",
-    fontWeight: 800,
-    marginBottom: ".3rem",
-  },
+  headerBox: { textAlign: "center", marginBottom: "1.5rem" },
+  welcome: { fontSize: "1.8rem", fontWeight: 800, marginBottom: ".3rem" },
   sub: { color: "#94a3b8", fontSize: "0.95rem" },
   maintenanceBanner: {
     background: "#7f1d1d",
@@ -301,11 +357,7 @@ const styles = {
     textAlign: "center",
   },
   metricLabel: { color: "#94a3b8", marginBottom: "0.3rem" },
-  metricValue: {
-    fontSize: "1.5rem",
-    fontWeight: 800,
-    color: "#38bdf8",
-  },
+  metricValue: { fontSize: "1.5rem", fontWeight: 800, color: "#38bdf8" },
   actionRow: {
     display: "flex",
     flexWrap: "wrap",
@@ -333,9 +385,8 @@ const styles = {
   },
   dashboardGrid: {
     display: "grid",
-    gridTemplateColumns: "2fr 1fr",
+    gridTemplateColumns: "1fr",
     gap: "1rem",
-    alignItems: "stretch",
   },
   card: {
     backgroundColor: "#111827",
@@ -343,15 +394,13 @@ const styles = {
     padding: "1rem",
     border: "1px solid #1f2937",
   },
-  cardTitle: {
-    fontSize: "1.1rem",
-    fontWeight: 700,
-    marginBottom: "0.8rem",
+  "@media (min-width: 768px)": {
+    dashboardGrid: {
+      gridTemplateColumns: "2fr 1fr",
+    },
   },
-  table: {
-    width: "100%",
-    borderSpacing: 0,
-  },
+  cardTitle: { fontSize: "1.1rem", fontWeight: 700, marginBottom: "0.8rem" },
+  table: { width: "100%", borderSpacing: 0 },
   th: {
     textAlign: "left",
     color: "#94a3b8",
@@ -394,5 +443,37 @@ const styles = {
     alignItems: "center",
     minHeight: "100vh",
     color: "#e2e8f0",
+  },
+  modalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 9999,
+    padding: "1rem",
+  },
+  modal: {
+    backgroundColor: "#1e293b",
+    borderRadius: "10px",
+    padding: "1.5rem",
+    width: "100%",
+    maxWidth: "400px",
+    textAlign: "center",
+    border: "2px solid rgba(255,255,255,0.1)",
+    boxShadow: "0 0 25px rgba(0,0,0,0.4)",
+  },
+  closeBtn: {
+    backgroundColor: "#2563eb",
+    color: "#fff",
+    border: "none",
+    borderRadius: "6px",
+    padding: ".6rem 1.2rem",
+    cursor: "pointer",
+    fontWeight: "600",
   },
 };

@@ -9,7 +9,7 @@ export default function ShopMarketplace() {
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
-  const [error, setError] = useState("");
+  const [modal, setModal] = useState({ show: false, type: "", message: "" });
 
   const API_BASE =
     (typeof import.meta !== "undefined" &&
@@ -19,9 +19,7 @@ export default function ShopMarketplace() {
 
   const token = localStorage.getItem("token");
 
-  /* --------------------------------------------
-     1️⃣ Fetch all shops
-  -------------------------------------------- */
+  /* ---------------- Fetch all shops ---------------- */
   useEffect(() => {
     const fetchShops = async () => {
       try {
@@ -32,7 +30,13 @@ export default function ShopMarketplace() {
         setShops(res.data.shops || []);
       } catch (err) {
         console.error("Error fetching shops:", err);
-        setError("Failed to load shops. Please try again later.");
+        setModal({
+          show: true,
+          type: "error",
+          message:
+            err.response?.data?.message ||
+            "Failed to load shops. Please try again later.",
+        });
       } finally {
         setLoading(false);
       }
@@ -41,9 +45,7 @@ export default function ShopMarketplace() {
     if (token) fetchShops();
   }, [API_BASE, token]);
 
-  /* --------------------------------------------
-     2️⃣ Filter + Search
-  -------------------------------------------- */
+  /* ---------------- Filter + Search ---------------- */
   const filtered = useMemo(() => {
     return shops.filter((shop) => {
       const matchesQuery = shop.name
@@ -57,9 +59,7 @@ export default function ShopMarketplace() {
     });
   }, [shops, query, categoryFilter, statusFilter]);
 
-  /* --------------------------------------------
-     3️⃣ UI States
-  -------------------------------------------- */
+  /* ---------------- UI States ---------------- */
   if (loading)
     return (
       <div style={styles.loading}>
@@ -67,16 +67,6 @@ export default function ShopMarketplace() {
       </div>
     );
 
-  if (error)
-    return (
-      <div style={styles.error}>
-        <p>{error}</p>
-      </div>
-    );
-
-  /* --------------------------------------------
-     4️⃣ UI Rendering
-  -------------------------------------------- */
   return (
     <div style={styles.page}>
       <h2 style={styles.heading}>Virtual Shop Marketplace</h2>
@@ -119,10 +109,12 @@ export default function ShopMarketplace() {
         </select>
       </div>
 
-      {/* Grid */}
+      {/* Shops Grid */}
       <div style={styles.grid}>
         {filtered.length === 0 ? (
-          <p style={{ color: "#94a3b8" }}>No shops match your filters.</p>
+          <p style={{ color: "#94a3b8", textAlign: "center" }}>
+            No shops match your filters.
+          </p>
         ) : (
           filtered.map((shop) => (
             <div key={shop._id} style={styles.card}>
@@ -155,7 +147,12 @@ export default function ShopMarketplace() {
                 </p>
 
                 <button
-                  style={styles.buyBtn}
+                  style={{
+                    ...styles.buyBtn,
+                    opacity: shop.status === "Closed" ? 0.6 : 1,
+                    cursor:
+                      shop.status === "Closed" ? "not-allowed" : "pointer",
+                  }}
                   onClick={() => navigate(`/shops/${shop._id}`)}
                   disabled={shop.status === "Closed"}
                 >
@@ -166,6 +163,37 @@ export default function ShopMarketplace() {
           ))
         )}
       </div>
+
+      {/* Modal for Error Handling */}
+      {modal.show && (
+        <div style={styles.modalOverlay}>
+          <div
+            style={{
+              ...styles.modal,
+              borderColor:
+                modal.type === "error" ? "#ef4444" : "rgba(34,197,94,0.6)",
+            }}
+          >
+            <h3
+              style={{
+                color: modal.type === "error" ? "#ef4444" : "#22c55e",
+                marginBottom: ".5rem",
+              }}
+            >
+              {modal.type === "error" ? "Error" : "Message"}
+            </h3>
+            <p style={{ color: "#e2e8f0", marginBottom: "1rem" }}>
+              {modal.message}
+            </p>
+            <button
+              onClick={() => setModal({ show: false, type: "", message: "" })}
+              style={styles.closeBtn}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -176,17 +204,26 @@ const styles = {
     fontFamily: "Inter, sans-serif",
     color: "#e2e8f0",
     padding: "1rem",
+    maxWidth: "1200px",
+    margin: "auto",
   },
-  heading: { fontSize: "1.5rem", fontWeight: 800 },
-  subtext: { color: "#94a3b8", marginBottom: "1.2rem" },
+  heading: {
+    fontSize: "1.6rem",
+    fontWeight: 800,
+    marginBottom: "0.3rem",
+    textAlign: "center",
+  },
+  subtext: { color: "#94a3b8", marginBottom: "1.2rem", textAlign: "center" },
   filterBox: {
     display: "flex",
     flexWrap: "wrap",
     gap: "0.6rem",
     marginBottom: "1.5rem",
+    justifyContent: "center",
   },
   search: {
-    flex: 1,
+    flex: "1 1 200px",
+    minWidth: "180px",
     padding: "0.65rem",
     borderRadius: "8px",
     backgroundColor: "#0b1220",
@@ -202,14 +239,14 @@ const styles = {
   },
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
     gap: "1rem",
   },
   card: {
-    backgroundColor: "#1e293b",
+    backgroundColor: "#111827",
     borderRadius: "12px",
-    border: "1px solid #334155",
-    overflow: "hidden",
+    border: "1px solid #1f2937",
+    transition: "transform .25s ease",
   },
   cardBody: { padding: "1rem" },
   cardTitle: { fontSize: "1.1rem", fontWeight: 700 },
@@ -233,6 +270,38 @@ const styles = {
     alignItems: "center",
     minHeight: "100vh",
     color: "#e2e8f0",
+  },
+  modalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 9999,
+    padding: "1rem",
+  },
+  modal: {
+    backgroundColor: "#1e293b",
+    borderRadius: "10px",
+    padding: "1.5rem",
+    width: "100%",
+    maxWidth: "400px",
+    textAlign: "center",
+    border: "2px solid rgba(255,255,255,0.1)",
+    boxShadow: "0 0 25px rgba(0,0,0,0.4)",
+  },
+  closeBtn: {
+    backgroundColor: "#2563eb",
+    color: "#fff",
+    border: "none",
+    borderRadius: "6px",
+    padding: ".6rem 1.2rem",
+    cursor: "pointer",
+    fontWeight: "600",
   },
   error: { textAlign: "center", color: "#ef4444", padding: "2rem" },
 };

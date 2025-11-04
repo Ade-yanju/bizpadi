@@ -1,189 +1,215 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import axios from "axios";
 
 export default function WithdrawFunds() {
-  // ---- Mock wallet + investments ----
-  const wallet = {
-    profitBalance: 78500, // ₦
-    bankAccounts: [
-      { id: "b1", bank: "Access Bank", number: "0123456789", name: "Alex Ade" },
-      { id: "b2", bank: "GTBank", number: "0234567891", name: "Alex Ade" },
-    ],
-  };
-
-  // Example invested shops with end dates for capital eligibility
-  const investments = [
-    { id: "INV-101", shop: "TechNova", capital: 150000, endDate: "2025-10-10" },
-    { id: "INV-102", shop: "GreenLeaf", capital: 80000, endDate: "2025-11-05" },
-    {
-      id: "INV-103",
-      shop: "CloudNova",
-      capital: 120000,
-      endDate: "2025-10-28",
-    }, // ends today
-  ];
-
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const capitalEligible = useMemo(() => {
-    return investments
-      .filter((i) => i.endDate <= todayStr) // eligible on or before today
-      .map((i) => ({ ...i, eligible: true }));
-  }, [investments, todayStr]);
-
-  const totalEligibleCapital = useMemo(
-    () => capitalEligible.reduce((s, i) => s + i.capital, 0),
-    [capitalEligible]
-  );
-
-  // ---- UI state ----
-  const [tab, setTab] = useState("profit"); // "profit" | "capital"
+  const [wallet, setWallet] = useState(null);
+  const [investments, setInvestments] = useState([]);
+  const [capitalEligible, setCapitalEligible] = useState([]);
+  const [tab, setTab] = useState("profit");
   const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState("VelvPay"); // or "Bank"
-  const [selectedBankId, setSelectedBankId] = useState(
-    wallet.bankAccounts[0]?.id || ""
-  );
-  const [selectedInvestmentId, setSelectedInvestmentId] = useState(
-    capitalEligible[0]?.id || ""
-  );
-  const [error, setError] = useState("");
+  const [method, setMethod] = useState("Bank"); // ✅ default to Bank
+  const [selectedBankId, setSelectedBankId] = useState("");
+  const [selectedInvestmentId, setSelectedInvestmentId] = useState("");
+  const [modal, setModal] = useState({ show: false, type: "", message: "" });
   const [submitting, setSubmitting] = useState(false);
 
-  // ---- Derived: limits + fees ----
+  const API_BASE =
+    import.meta.env?.VITE_API_BASE_URL ||
+    process.env.REACT_APP_API_URL ||
+    "http://localhost:5000";
+
+  const token = localStorage.getItem("token");
+
+  /* ---------------- Fetch Wallet + Investments ---------------- */
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [walletRes, investRes] = await Promise.all([
+          axios.get(`${API_BASE}/api/wallet`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          axios.get(`${API_BASE}/api/investments`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+
+        setWallet(walletRes.data.wallet);
+        setInvestments(investRes.data.investments || []);
+      } catch (err) {
+        console.error("Wallet fetch error:", err);
+        setModal({
+          show: true,
+          type: "error",
+          message:
+            err.response?.data?.message ||
+            "Unable to load wallet information. Please try again later.",
+        });
+      }
+    };
+    fetchData();
+  }, [API_BASE, token]);
+
+  /* ---------------- Capital Eligibility ---------------- */
+  useEffect(() => {
+    if (!investments.length) return;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const eligible = investments.filter((inv) => inv.endDate <= todayStr);
+    setCapitalEligible(eligible);
+    if (eligible[0]) setSelectedInvestmentId(eligible[0]._id);
+  }, [investments]);
+
+  /* ---------------- Derived Calculations ---------------- */
   const minWithdrawal = 1000;
-  const feeRate = 0.01; // 1%
+  const feeRate = 0.01;
   const parsedAmount = Number(amount) || 0;
-  const fee = Math.max(0, Math.floor(parsedAmount * feeRate));
-  const netAmount = Math.max(0, parsedAmount - fee);
+  const fee = Math.floor(parsedAmount * feeRate);
+  const netAmount = parsedAmount - fee;
 
   const selectedInvestment = useMemo(
-    () => capitalEligible.find((x) => x.id === selectedInvestmentId),
+    () => capitalEligible.find((x) => x._id === selectedInvestmentId),
     [capitalEligible, selectedInvestmentId]
   );
 
   const maxAvailable =
-    tab === "profit" ? wallet.profitBalance : selectedInvestment?.capital || 0;
+    tab === "profit"
+      ? wallet?.profitBalance || 0
+      : selectedInvestment?.capital || 0;
 
-  // ---- Actions ----
-  const submitWithdrawal = () => {
-    setError("");
+  /* ---------------- Submit Withdrawal ---------------- */
+  const submitWithdrawal = async () => {
+    if (!parsedAmount || parsedAmount < minWithdrawal)
+      return setModal({
+        show: true,
+        type: "error",
+        message: `Minimum withdrawal is ₦${minWithdrawal.toLocaleString()}.`,
+      });
 
-    if (!parsedAmount || parsedAmount < minWithdrawal) {
-      setError(`Minimum withdrawal is ₦${minWithdrawal.toLocaleString()}.`);
-      return;
-    }
-    if (parsedAmount > maxAvailable) {
-      setError(
-        `Amount exceeds available ${
-          tab === "profit" ? "profit" : "capital"
-        } balance.`
-      );
-      return;
-    }
-    if (method === "Bank" && !selectedBankId) {
-      setError("Select a bank account.");
-      return;
-    }
-    if (tab === "capital" && !selectedInvestmentId) {
-      setError("Select an eligible investment for capital withdrawal.");
-      return;
-    }
+    if (parsedAmount > maxAvailable)
+      return setModal({
+        show: true,
+        type: "error",
+        message: `Amount exceeds available ${tab} balance.`,
+      });
+
+    if (method === "Bank" && !selectedBankId)
+      return setModal({
+        show: true,
+        type: "error",
+        message: "Please select a bank account.",
+      });
+
+    if (tab === "capital" && !selectedInvestmentId)
+      return setModal({
+        show: true,
+        type: "error",
+        message: "Select an eligible investment for capital withdrawal.",
+      });
 
     setSubmitting(true);
-    setTimeout(() => {
-      alert(
-        tab === "profit"
-          ? `Profit withdrawal of ₦${parsedAmount.toLocaleString()} via ${method} submitted ✅`
-          : `Capital withdrawal of ₦${parsedAmount.toLocaleString()} from ${
-              selectedInvestment?.shop
-            } via ${method} submitted ✅`
-      );
-      // reset amount only
+    try {
+      const payload = {
+        type: tab,
+        amount: parsedAmount,
+        method,
+        bankId: selectedBankId,
+        investmentId: selectedInvestmentId,
+      };
+
+      await axios.post(`${API_BASE}/api/withdrawals`, payload, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      setModal({
+        show: true,
+        type: "success",
+        message: `Withdrawal of ₦${parsedAmount.toLocaleString()} submitted successfully.`,
+      });
       setAmount("");
+    } catch (err) {
+      console.error("Withdrawal error:", err);
+      setModal({
+        show: true,
+        type: "error",
+        message:
+          err.response?.data?.message ||
+          "Failed to submit withdrawal request. Please retry.",
+      });
+    } finally {
       setSubmitting(false);
-    }, 500);
+    }
   };
 
-  // ---- UI ----
+  if (!wallet) {
+    return (
+      <div style={styles.loadingPage}>
+        <div>Loading wallet...</div>
+      </div>
+    );
+  }
+
+  /* ---------------- UI ---------------- */
   return (
     <div style={styles.page}>
       <h2 style={styles.title}>Withdraw Funds</h2>
       <p style={styles.sub}>
-        Profit can be withdrawn anytime. Capital is only available on the last
-        day of the shop’s duration.
+        Withdraw profits anytime or access your capital when investments mature.
       </p>
 
       {/* Tabs */}
       <div style={styles.tabs}>
-        <button
-          style={{
-            ...styles.tab,
-            ...(tab === "profit" ? styles.tabActive : {}),
-          }}
-          onClick={() => setTab("profit")}
-        >
-          Profit Withdrawal
-        </button>
-        <button
-          style={{
-            ...styles.tab,
-            ...(tab === "capital" ? styles.tabActive : {}),
-          }}
-          onClick={() => setTab("capital")}
-        >
-          Capital Withdrawal
-        </button>
+        {["profit", "capital"].map((t) => (
+          <button
+            key={t}
+            style={{
+              ...styles.tab,
+              ...(tab === t ? styles.tabActive : {}),
+            }}
+            onClick={() => setTab(t)}
+          >
+            {t === "profit" ? "Profit Withdrawal" : "Capital Withdrawal"}
+          </button>
+        ))}
       </div>
 
-      {/* Info cards */}
-      {tab === "profit" ? (
-        <div style={styles.kpiRow}>
-          <div style={styles.kpiCard}>
-            <div style={styles.kpiLabel}>Profit Balance</div>
-            <div style={styles.kpiValue}>
-              ₦{wallet.profitBalance.toLocaleString()}
-            </div>
+      {/* KPI Section */}
+      <div style={styles.kpiGrid}>
+        <div style={styles.kpiCard}>
+          <div style={styles.kpiLabel}>
+            {tab === "profit" ? "Profit Balance" : "Eligible Capital"}
           </div>
-          <div style={styles.kpiCard}>
-            <div style={styles.kpiLabel}>Minimum Withdrawal</div>
-            <div style={styles.kpiValue}>₦{minWithdrawal.toLocaleString()}</div>
-          </div>
-        </div>
-      ) : (
-        <div style={styles.kpiRow}>
-          <div style={styles.kpiCard}>
-            <div style={styles.kpiLabel}>Eligible Capital Today</div>
-            <div style={styles.kpiValue}>
-              ₦{totalEligibleCapital.toLocaleString()}
-            </div>
-            <div style={styles.miniNote}>
-              ({capitalEligible.length} investment
-              {capitalEligible.length !== 1 ? "s" : ""} eligible)
-            </div>
-          </div>
-          <div style={styles.kpiCard}>
-            <div style={styles.kpiLabel}>Minimum Withdrawal</div>
-            <div style={styles.kpiValue}>₦{minWithdrawal.toLocaleString()}</div>
+          <div style={styles.kpiValue}>
+            ₦
+            {(tab === "profit"
+              ? wallet.profitBalance
+              : capitalEligible.reduce((s, i) => s + i.capital, 0)
+            ).toLocaleString()}
           </div>
         </div>
-      )}
+        <div style={styles.kpiCard}>
+          <div style={styles.kpiLabel}>Minimum Withdrawal</div>
+          <div style={styles.kpiValue}>₦{minWithdrawal.toLocaleString()}</div>
+        </div>
+      </div>
 
       {/* Form */}
       <div style={styles.card}>
         {tab === "capital" && (
           <>
-            <label style={styles.label}>Select Investment (Eligible)</label>
+            <label style={styles.label}>Eligible Investments</label>
             <select
               value={selectedInvestmentId}
               onChange={(e) => setSelectedInvestmentId(e.target.value)}
               style={styles.input}
             >
-              {capitalEligible.length === 0 ? (
-                <option value="">No eligible investments today</option>
-              ) : (
+              {capitalEligible.length ? (
                 capitalEligible.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.shop} — ₦{i.capital.toLocaleString()} (ended {i.endDate})
+                  <option key={i._id} value={i._id}>
+                    {i.shopName} — ₦{i.capital.toLocaleString()} (ends{" "}
+                    {i.endDate})
                   </option>
                 ))
+              ) : (
+                <option>No eligible investments</option>
               )}
             </select>
           </>
@@ -195,23 +221,27 @@ export default function WithdrawFunds() {
           onChange={(e) => setMethod(e.target.value)}
           style={styles.input}
         >
-          <option>VelvPay</option>
-          <option>Bank</option>
+          <option value="Bank">Bank</option>
+          <option value="VelvPay">VelvPay</option>
         </select>
 
         {method === "Bank" && (
           <>
-            <label style={styles.label}>Bank Account</label>
+            <label style={styles.label}>Select Bank Account</label>
             <select
               value={selectedBankId}
               onChange={(e) => setSelectedBankId(e.target.value)}
               style={styles.input}
             >
-              {wallet.bankAccounts.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.bank} • {b.number} • {b.name}
-                </option>
-              ))}
+              {wallet.bankAccounts?.length ? (
+                wallet.bankAccounts.map((b) => (
+                  <option key={b._id} value={b._id}>
+                    {b.bank} • {b.number} • {b.name}
+                  </option>
+                ))
+              ) : (
+                <option>No saved bank accounts</option>
+              )}
             </select>
           </>
         )}
@@ -221,14 +251,12 @@ export default function WithdrawFunds() {
         </label>
         <input
           type="number"
-          min={0}
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          placeholder="Enter amount"
           style={styles.input}
+          placeholder="Enter amount"
         />
 
-        {/* Breakdown */}
         <div style={styles.breakdown}>
           <div style={styles.breakRow}>
             <span>Fee (1%)</span>
@@ -236,208 +264,106 @@ export default function WithdrawFunds() {
           </div>
           <div style={styles.breakRow}>
             <span>Net Amount</span>
-            <span style={{ fontWeight: 800 }}>
+            <span style={{ fontWeight: 700 }}>
               ₦{netAmount.toLocaleString()}
             </span>
           </div>
         </div>
 
-        {error && <div style={styles.error}>{error}</div>}
-
         <button
-          style={styles.primaryBtn}
           onClick={submitWithdrawal}
+          style={styles.primaryBtn}
           disabled={submitting}
         >
           {submitting ? "Submitting..." : "Withdraw"}
         </button>
       </div>
 
-      {/* Eligible capital list (context) */}
-      {tab === "capital" && (
-        <div style={styles.card}>
-          <div style={styles.cardTitle}>Eligible Capital Today</div>
-          {capitalEligible.length === 0 ? (
-            <div style={styles.emptyText}>
-              No investments reach their last day today.
-            </div>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>ID</th>
-                    <th style={styles.th}>Shop</th>
-                    <th style={styles.th}>Capital</th>
-                    <th style={styles.th}>Ends</th>
-                    <th style={styles.th}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {capitalEligible.map((i) => (
-                    <tr key={i.id} style={styles.tr}>
-                      <td style={styles.td}>{i.id}</td>
-                      <td style={styles.td}>{i.shop}</td>
-                      <td style={styles.td}>₦{i.capital.toLocaleString()}</td>
-                      <td style={styles.td}>{i.endDate}</td>
-                      <td style={styles.td}>
-                        <span
-                          style={{
-                            ...styles.badge,
-                            backgroundColor: "#065f46",
-                            color: "#6ee7b7",
-                          }}
-                        >
-                          Eligible
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+      {/* Modal */}
+      {modal.show && (
+        <div style={styles.modalOverlay}>
+          <div
+            style={{
+              ...styles.modal,
+              borderColor:
+                modal.type === "error" ? "#ef4444" : "rgba(34,197,94,0.6)",
+            }}
+          >
+            <h3
+              style={{
+                color: modal.type === "error" ? "#ef4444" : "#22c55e",
+                marginBottom: ".5rem",
+              }}
+            >
+              {modal.type === "error" ? "Error" : "Success"}
+            </h3>
+            <p style={{ color: "#e2e8f0", marginBottom: "1rem" }}>
+              {modal.message}
+            </p>
+            <button
+              onClick={() => setModal({ show: false, type: "", message: "" })}
+              style={styles.closeBtn}
+            >
+              Close
+            </button>
+          </div>
         </div>
       )}
-
-      {/* History */}
-      <div style={styles.card}>
-        <div style={styles.cardTitle}>Recent Withdrawals</div>
-        <div style={{ overflowX: "auto" }}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Ref</th>
-                <th style={styles.th}>Type</th>
-                <th style={styles.th}>Method</th>
-                <th style={styles.th}>Amount</th>
-                <th style={styles.th}>Date</th>
-                <th style={styles.th}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {mockHistory.map((h) => (
-                <tr key={h.ref} style={styles.tr}>
-                  <td style={styles.td}>{h.ref}</td>
-                  <td style={styles.td}>{h.type}</td>
-                  <td style={styles.td}>{h.method}</td>
-                  <td style={styles.td}>₦{h.amount.toLocaleString()}</td>
-                  <td style={styles.td}>{h.date}</td>
-                  <td style={styles.td}>
-                    <span
-                      style={{
-                        ...styles.badge,
-                        backgroundColor:
-                          h.status === "Completed"
-                            ? "#065f46"
-                            : h.status === "Pending"
-                            ? "#4c1d95"
-                            : "#7f1d1d",
-                        color:
-                          h.status === "Completed"
-                            ? "#6ee7b7"
-                            : h.status === "Pending"
-                            ? "#ddd6fe"
-                            : "#fecaca",
-                      }}
-                    >
-                      {h.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
   );
 }
 
-/* ---- Mock history ---- */
-const mockHistory = [
-  {
-    ref: "WD-8801",
-    type: "Profit",
-    method: "VelvPay",
-    amount: 25000,
-    date: "2025-10-25",
-    status: "Completed",
-  },
-  {
-    ref: "WD-8790",
-    type: "Capital",
-    method: "Bank",
-    amount: 120000,
-    date: "2025-10-20",
-    status: "Pending",
-  },
-  {
-    ref: "WD-8789",
-    type: "Profit",
-    method: "Bank",
-    amount: 8000,
-    date: "2025-10-15",
-    status: "Failed",
-  },
-];
-
-/* ---- Inline styles ---- */
+/* ---- Styles ---- */
 const styles = {
   page: {
     fontFamily: "Inter, sans-serif",
     color: "#e2e8f0",
     maxWidth: 900,
+    margin: "0 auto",
+    padding: "1rem",
   },
-  title: { fontSize: "1.5rem", fontWeight: 800, marginBottom: ".2rem" },
+  title: { fontSize: "1.6rem", fontWeight: 800, marginBottom: ".3rem" },
   sub: { color: "#94a3b8", marginBottom: "1rem" },
-
   tabs: {
     display: "flex",
-    gap: "0.4rem",
+    flexWrap: "wrap",
+    gap: ".5rem",
     backgroundColor: "#1e293b",
-    border: "1px solid #334155",
     borderRadius: "10px",
-    padding: "0.25rem",
-    width: "fit-content",
+    padding: ".25rem",
     marginBottom: "1rem",
   },
   tab: {
-    padding: ".55rem .9rem",
-    background: "transparent",
-    color: "#cbd5e1",
+    flex: 1,
+    padding: ".6rem .8rem",
     border: "none",
     borderRadius: "8px",
-    fontWeight: 700,
+    background: "transparent",
+    color: "#cbd5e1",
+    fontWeight: 600,
     cursor: "pointer",
   },
-  tabActive: {
-    backgroundColor: "#2563eb",
-    color: "#fff",
+  tabActive: { backgroundColor: "#2563eb", color: "#fff" },
+  kpiGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gap: "1rem",
+    marginBottom: "1rem",
   },
-
-  kpiRow: { display: "flex", gap: "1rem", marginBottom: "1rem" },
   kpiCard: {
     backgroundColor: "#111827",
-    border: "1px solid #1f2937",
-    borderRadius: "12px",
-    padding: "0.9rem",
-    flex: 1,
+    borderRadius: "10px",
+    padding: "1rem",
   },
   kpiLabel: { color: "#94a3b8", marginBottom: ".2rem" },
   kpiValue: { fontSize: "1.3rem", fontWeight: 800, color: "#38bdf8" },
-  miniNote: { color: "#94a3b8", marginTop: ".2rem", fontSize: ".85rem" },
-
   card: {
     backgroundColor: "#111827",
-    border: "1px solid #1f2937",
     borderRadius: "12px",
     padding: "1rem",
     marginBottom: "1rem",
   },
-  cardTitle: { fontWeight: 800, marginBottom: ".6rem" },
-
-  label: { display: "block", marginBottom: ".35rem", color: "#94a3b8" },
+  label: { display: "block", marginBottom: ".3rem", color: "#94a3b8" },
   input: {
     width: "100%",
     padding: ".7rem",
@@ -448,27 +374,17 @@ const styles = {
     marginBottom: ".8rem",
     outline: "none",
   },
-
   breakdown: {
     backgroundColor: "#0b1220",
     border: "1px solid #334155",
-    borderRadius: "10px",
+    borderRadius: "8px",
     padding: ".6rem .75rem",
     marginBottom: ".8rem",
   },
   breakRow: {
     display: "flex",
     justifyContent: "space-between",
-    padding: ".25rem 0",
-  },
-
-  error: {
-    backgroundColor: "#3f1d1d",
-    border: "1px solid #7f1d1d",
-    color: "#fecaca",
-    padding: ".55rem",
-    borderRadius: "8px",
-    marginBottom: ".7rem",
+    padding: ".2rem 0",
   },
   primaryBtn: {
     width: "100%",
@@ -477,27 +393,46 @@ const styles = {
     border: "none",
     borderRadius: "10px",
     padding: ".75rem",
-    fontWeight: 800,
+    fontWeight: 700,
     cursor: "pointer",
   },
-
-  emptyText: { color: "#94a3b8" },
-
-  table: { width: "100%", borderSpacing: 0 },
-  th: {
-    textAlign: "left",
-    color: "#94a3b8",
-    padding: ".6rem",
-    borderBottom: "1px solid #1f2937",
-    whiteSpace: "nowrap",
+  modalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 9999,
+    padding: "1rem",
   },
-  tr: { borderBottom: "1px dashed #1f2937" },
-  td: { padding: ".6rem", whiteSpace: "nowrap" },
-
-  badge: {
-    padding: ".25rem .6rem",
-    fontSize: ".8rem",
-    borderRadius: "8px",
-    fontWeight: 700,
+  modal: {
+    backgroundColor: "#1e293b",
+    borderRadius: "10px",
+    padding: "1.5rem",
+    width: "90%",
+    maxWidth: "400px",
+    textAlign: "center",
+    border: "2px solid rgba(255,255,255,0.1)",
+  },
+  closeBtn: {
+    backgroundColor: "#2563eb",
+    color: "#fff",
+    border: "none",
+    borderRadius: "6px",
+    padding: ".6rem 1.2rem",
+    cursor: "pointer",
+    fontWeight: "600",
+  },
+  loadingPage: {
+    height: "100vh",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#fff",
+    fontFamily: "Inter, sans-serif",
   },
 };

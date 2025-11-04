@@ -13,12 +13,11 @@ export default function CreateAccount() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [error, setError] = useState("");
+  const [modal, setModal] = useState({ show: false, type: "", message: "" });
   const [loading, setLoading] = useState(false);
 
   const API_BASE =
-    (typeof import.meta !== "undefined" &&
-      import.meta.env?.VITE_API_BASE_URL) ||
+    import.meta.env?.VITE_API_BASE_URL ||
     process.env.VITE_API_BASE_URL ||
     process.env.REACT_APP_API_URL ||
     "http://localhost:5000";
@@ -32,17 +31,21 @@ export default function CreateAccount() {
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    setError("");
+    setModal({ show: false, message: "", type: "" });
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match");
+      setModal({
+        show: true,
+        type: "error",
+        message: "Passwords do not match",
+      });
       return;
     }
 
     try {
       setLoading(true);
 
-      // ✅ 1. Create user in Firebase
+      // ✅ Create user in Firebase
       const userCred = await createUserWithEmailAndPassword(
         auth,
         email,
@@ -50,123 +53,101 @@ export default function CreateAccount() {
       );
       await updateProfile(userCred.user, { displayName: name });
 
-      // ✅ 2. Get fresh ID token
+      // ✅ Get fresh token
       const token = await userCred.user.getIdToken(true);
 
-      // ✅ 3. Send user details to backend
+      // ✅ Register with backend
       const { data } = await axios.post(
         `${API_BASE}/api/auth/register`,
         { name, email, contact },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      // ✅ 4. Save locally
       localStorage.setItem("token", token);
       localStorage.setItem("role", data.role || "user");
       localStorage.setItem("user", JSON.stringify(data.user));
 
-      // ✅ 5. Navigate to dashboard
-      navigate("/dashboard");
+      setModal({
+        show: true,
+        type: "success",
+        message: "Account created successfully! Redirecting...",
+      });
+
+      setTimeout(() => navigate("/dashboard"), 1500);
     } catch (err) {
-      console.error("Registration error:", err.response?.data || err.message);
-      if (err.code === "auth/email-already-in-use") {
-        setError("This email is already registered. Try logging in instead.");
-      } else if (err.code === "auth/invalid-email") {
-        setError("Invalid email address.");
-      } else if (err.code === "auth/weak-password") {
-        setError("Your password is too weak.");
-      } else {
-        setError(
-          err.response?.data?.message ||
-            "Something went wrong. Please try again."
-        );
-      }
+      console.error("Registration error:", err);
+      const code = err.code;
+      let msg =
+        err.response?.data?.message ||
+        "Something went wrong. Please try again.";
+
+      if (code === "auth/email-already-in-use")
+        msg = "This email is already registered.";
+      if (code === "auth/invalid-email") msg = "Invalid email address.";
+      if (code === "auth/weak-password") msg = "Your password is too weak.";
+
+      setModal({ show: true, type: "error", message: msg });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div
-      style={{
-        backgroundColor: "#0f172a",
-        minHeight: "100vh",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        color: "#fff",
-        fontFamily: "Inter, sans-serif",
-        padding: "1rem",
-      }}
-    >
-      <div
-        style={{
-          backgroundColor: "#1e293b",
-          borderRadius: "12px",
-          padding: "2rem",
-          width: "100%",
-          maxWidth: "420px",
-          boxShadow: "0 0 20px rgba(0,0,0,0.3)",
-        }}
-      >
-        <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
-          <h2 style={{ marginBottom: "0.3rem" }}>Create Your Account</h2>
+    <div style={styles.container}>
+      <div style={styles.card}>
+        <div style={styles.logoSection}>
+          <div style={styles.logo}>V</div>
+          <h2 style={styles.heading}>Create Your Account</h2>
           <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
             Start your journey with us.
           </p>
         </div>
 
-        <form onSubmit={handleRegister}>
-          {/* Full Name */}
-          <div style={{ marginBottom: "1rem" }}>
+        <form onSubmit={handleRegister} style={styles.form}>
+          <div style={styles.formGroup}>
             <label style={styles.label}>Full Name</label>
             <input
               type="text"
-              placeholder="Enter your full name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               style={styles.input}
+              placeholder="Enter your full name"
               required
             />
           </div>
 
-          {/* Email */}
-          <div style={{ marginBottom: "1rem" }}>
+          <div style={styles.formGroup}>
             <label style={styles.label}>Email</label>
             <input
               type="email"
-              placeholder="Enter your email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               style={styles.input}
+              placeholder="Enter your email"
               required
             />
           </div>
 
-          {/* Contact */}
-          <div style={{ marginBottom: "1rem" }}>
+          <div style={styles.formGroup}>
             <label style={styles.label}>Contact Number</label>
             <input
               type="tel"
-              placeholder="Enter your contact number"
               value={contact}
               onChange={(e) => setContact(e.target.value)}
               style={styles.input}
+              placeholder="Enter your contact number"
               required
             />
           </div>
 
-          {/* Password */}
-          <div style={{ marginBottom: "1rem", position: "relative" }}>
+          <div style={{ ...styles.formGroup, position: "relative" }}>
             <label style={styles.label}>Password</label>
             <input
               type={showPassword ? "text" : "password"}
-              placeholder="Enter your password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               style={{ ...styles.input, paddingRight: "2.5rem" }}
+              placeholder="Enter your password"
               required
             />
             <span
@@ -177,22 +158,25 @@ export default function CreateAccount() {
             </span>
             {password && (
               <div
-                style={{ fontSize: "0.8rem", color: strengthColor(strength) }}
+                style={{
+                  fontSize: "0.8rem",
+                  marginTop: "0.3rem",
+                  color: strengthColor(strength),
+                }}
               >
-                {strength}
+                {strength} password
               </div>
             )}
           </div>
 
-          {/* Confirm Password */}
-          <div style={{ marginBottom: "1rem", position: "relative" }}>
+          <div style={{ ...styles.formGroup, position: "relative" }}>
             <label style={styles.label}>Confirm Password</label>
             <input
               type={showConfirmPassword ? "text" : "password"}
-              placeholder="Confirm your password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               style={{ ...styles.input, paddingRight: "2.5rem" }}
+              placeholder="Confirm your password"
               required
             />
             <span
@@ -203,17 +187,9 @@ export default function CreateAccount() {
             </span>
           </div>
 
-          {/* Terms */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              marginBottom: "1.2rem",
-              fontSize: "0.9rem",
-            }}
-          >
+          <div style={styles.terms}>
             <input type="checkbox" style={{ marginRight: "0.5rem" }} required />
-            <span>
+            <span style={{ fontSize: "0.9rem" }}>
               I agree to the{" "}
               <a href="#" style={{ color: "#3b82f6", textDecoration: "none" }}>
                 Terms and Conditions
@@ -221,70 +197,105 @@ export default function CreateAccount() {
             </span>
           </div>
 
-          {/* Error */}
-          {error && (
-            <p
-              style={{
-                color: "#ef4444",
-                fontSize: "0.9rem",
-                marginBottom: "1rem",
-              }}
-            >
-              {error}
-            </p>
-          )}
-
-          {/* Submit */}
-          <button
-            type="submit"
-            style={{
-              width: "100%",
-              backgroundColor: "#3b82f6",
-              color: "#fff",
-              padding: "0.8rem",
-              border: "none",
-              borderRadius: "8px",
-              fontWeight: "600",
-              cursor: "pointer",
-              opacity: loading ? 0.7 : 1,
-            }}
-            disabled={loading}
-          >
+          <button type="submit" style={styles.button} disabled={loading}>
             {loading ? "Creating..." : "Create Account"}
           </button>
 
-          {/* Login Link */}
-          <div
-            style={{
-              textAlign: "center",
-              marginTop: "1rem",
-              fontSize: "0.9rem",
-              color: "#94a3b8",
-            }}
-          >
+          <div style={styles.footerText}>
             Already have an account?{" "}
-            <span
-              onClick={() => navigate("/auth/login")}
-              style={{
-                color: "#3b82f6",
-                textDecoration: "none",
-                cursor: "pointer",
-                fontWeight: "500",
-              }}
-            >
+            <span onClick={() => navigate("/auth/login")} style={styles.link}>
               Log In
             </span>
           </div>
         </form>
       </div>
+
+      {/* Modal */}
+      {modal.show && (
+        <div style={styles.modalOverlay}>
+          <div
+            style={{
+              ...styles.modal,
+              borderColor:
+                modal.type === "error" ? "#ef4444" : "rgba(34,197,94,0.6)",
+            }}
+          >
+            <h3
+              style={{
+                color: modal.type === "error" ? "#ef4444" : "#22c55e",
+                marginBottom: "0.5rem",
+              }}
+            >
+              {modal.type === "error" ? "Error" : "Success"}
+            </h3>
+            <p style={{ color: "#e2e8f0", marginBottom: "1rem" }}>
+              {modal.message}
+            </p>
+            <button
+              onClick={() => setModal({ show: false, message: "", type: "" })}
+              style={{
+                backgroundColor: modal.type === "error" ? "#ef4444" : "#22c55e",
+                color: "#fff",
+                padding: "0.6rem 1rem",
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontWeight: "500",
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
+/* ----------------------------------------------------------------
+   🎨 STYLES (fully responsive)
+---------------------------------------------------------------- */
 const styles = {
+  container: {
+    backgroundColor: "#0f172a",
+    minHeight: "100vh",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    fontFamily: "Inter, sans-serif",
+    color: "#fff",
+    padding: "1rem",
+  },
+  card: {
+    backgroundColor: "#1e293b",
+    borderRadius: "12px",
+    padding: "2rem",
+    width: "100%",
+    maxWidth: "420px",
+    boxShadow: "0 0 20px rgba(0,0,0,0.3)",
+  },
+  logoSection: {
+    textAlign: "center",
+    marginBottom: "1.5rem",
+  },
+  logo: {
+    backgroundColor: "#0d9488",
+    width: "45px",
+    height: "45px",
+    borderRadius: "8px",
+    margin: "0 auto 0.8rem",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: "700",
+    fontSize: "1.2rem",
+  },
+  heading: { fontWeight: "700", fontSize: "1.3rem", marginBottom: ".2rem" },
+  form: { width: "100%" },
+  formGroup: { marginBottom: "1rem" },
   label: { display: "block", marginBottom: "0.3rem", fontSize: "0.9rem" },
   input: {
-    width: "90%",
+    width: "100%",
     padding: "0.75rem",
     borderRadius: "8px",
     border: "1px solid #334155",
@@ -292,13 +303,65 @@ const styles = {
     color: "#fff",
     outline: "none",
     fontSize: "0.9rem",
+    boxSizing: "border-box",
   },
   eyeIcon: {
     position: "absolute",
     right: "0.75rem",
-    top: "2.3rem",
+    top: "0.7rem",
     cursor: "pointer",
     fontSize: "1.1rem",
+  },
+  terms: {
+    display: "flex",
+    alignItems: "center",
+    marginBottom: "1rem",
+    flexWrap: "wrap",
+  },
+  button: {
+    width: "100%",
+    backgroundColor: "#2563eb",
+    color: "#fff",
+    padding: "0.8rem",
+    border: "none",
+    borderRadius: "8px",
+    fontWeight: "600",
+    cursor: "pointer",
+    transition: "0.2s",
+  },
+  footerText: {
+    textAlign: "center",
+    marginTop: "1rem",
+    fontSize: "0.9rem",
+    color: "#94a3b8",
+  },
+  link: {
+    color: "#3b82f6",
+    textDecoration: "none",
+    cursor: "pointer",
+    fontWeight: "500",
+  },
+  modalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 9999,
+  },
+  modal: {
+    backgroundColor: "#1e293b",
+    borderRadius: "10px",
+    padding: "1.5rem",
+    width: "90%",
+    maxWidth: "400px",
+    textAlign: "center",
+    border: "2px solid rgba(255,255,255,0.1)",
+    boxShadow: "0 0 25px rgba(0,0,0,0.4)",
   },
 };
 

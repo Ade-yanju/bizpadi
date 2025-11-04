@@ -14,7 +14,7 @@ export default function TransactionsAnalytics() {
   const [transactions, setTransactions] = useState([]);
   const [investments, setInvestments] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [modal, setModal] = useState({ show: false, type: "", message: "" });
   const [category, setCategory] = useState("All");
   const [dateRange, setDateRange] = useState("30");
 
@@ -25,9 +25,7 @@ export default function TransactionsAnalytics() {
 
   const token = localStorage.getItem("token");
 
-  /* --------------------------------------------
-     1️⃣ Fetch transactions & investments
-  -------------------------------------------- */
+  /* --------------- Fetch Transactions & Investments --------------- */
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -39,8 +37,14 @@ export default function TransactionsAnalytics() {
         setTransactions(txRes.data.transactions || []);
         setInvestments(investRes.data.investments || []);
       } catch (err) {
-        console.error("Error fetching data:", err);
-        setError("Failed to load analytics data.");
+        console.error("Error fetching analytics:", err);
+        setModal({
+          show: true,
+          type: "error",
+          message:
+            err.response?.data?.message ||
+            "Failed to load analytics data. Please try again.",
+        });
       } finally {
         setLoading(false);
       }
@@ -48,9 +52,7 @@ export default function TransactionsAnalytics() {
     if (token) fetchData();
   }, [API_BASE, token]);
 
-  /* --------------------------------------------
-     2️⃣ Derived metrics
-  -------------------------------------------- */
+  /* --------------- Derived Metrics --------------- */
   const categorizedTotals = useMemo(() => {
     const sums = {
       deposit: 0,
@@ -70,8 +72,6 @@ export default function TransactionsAnalytics() {
   const totalWithdrawn = categorizedTotals.withdrawal;
   const totalInvested = categorizedTotals.investment;
   const totalTransfer = categorizedTotals.transfer;
-
-  // Calculate income generated from investments
   const totalIncomeGenerated = useMemo(() => {
     return investments.reduce(
       (sum, i) => sum + Number(i.profit || i.dailyIncome || 0),
@@ -83,14 +83,11 @@ export default function TransactionsAnalytics() {
   const netFlow =
     totalDeposited + totalIncome - (totalWithdrawn + totalInvested);
 
-  /* --------------------------------------------
-     3️⃣ Filtering
-  -------------------------------------------- */
+  /* --------------- Filters --------------- */
   const filteredTx = useMemo(() => {
     let filtered = transactions;
     if (category !== "All")
       filtered = filtered.filter((t) => t.type === category);
-
     if (dateRange !== "All") {
       const days = parseInt(dateRange, 10);
       const cutoff = new Date();
@@ -102,9 +99,7 @@ export default function TransactionsAnalytics() {
     );
   }, [transactions, category, dateRange]);
 
-  /* --------------------------------------------
-     4️⃣ Chart Data
-  -------------------------------------------- */
+  /* --------------- Chart Data --------------- */
   const chartData = useMemo(() => {
     const daily = {};
     filteredTx.forEach((tx) => {
@@ -118,11 +113,15 @@ export default function TransactionsAnalytics() {
     }));
   }, [filteredTx]);
 
-  /* --------------------------------------------
-     5️⃣ Export to CSV
-  -------------------------------------------- */
+  /* --------------- Export / Print --------------- */
   const exportToCSV = () => {
-    if (!filteredTx.length) return alert("No data to export!");
+    if (!filteredTx.length)
+      return setModal({
+        show: true,
+        type: "error",
+        message: "No transactions available to export.",
+      });
+
     const headers = ["Type", "Amount", "Status", "Date"];
     const rows = filteredTx.map((t) => [
       t.type,
@@ -138,14 +137,9 @@ export default function TransactionsAnalytics() {
     link.click();
   };
 
-  /* --------------------------------------------
-     6️⃣ Print Transactions
-  -------------------------------------------- */
   const printTable = () => window.print();
 
-  /* --------------------------------------------
-     7️⃣ UI
-  -------------------------------------------- */
+  /* --------------- UI --------------- */
   if (loading)
     return (
       <div style={styles.loading}>
@@ -153,19 +147,11 @@ export default function TransactionsAnalytics() {
       </div>
     );
 
-  if (error)
-    return (
-      <div style={styles.error}>
-        <p>{error}</p>
-      </div>
-    );
-
   return (
     <div style={styles.page}>
       <h1 style={styles.title}>📊 Transaction Analytics</h1>
       <p style={styles.subtitle}>
-        Complete breakdown of your deposits, withdrawals, investments, and
-        income generation.
+        Breakdown of your deposits, withdrawals, investments, and income.
       </p>
 
       {/* Summary */}
@@ -222,24 +208,30 @@ export default function TransactionsAnalytics() {
 
       {/* Chart */}
       <div style={styles.chartCard}>
-        <ResponsiveContainer width="100%" height={320}>
-          <LineChart data={chartData}>
-            <CartesianGrid stroke="#1f2937" strokeDasharray="4 4" />
-            <XAxis dataKey="date" tick={{ fill: "#94a3b8" }} />
-            <YAxis tick={{ fill: "#94a3b8" }} />
-            <Tooltip
-              contentStyle={styles.tooltip}
-              formatter={(v) => `₦${v.toLocaleString()}`}
-            />
-            <Line
-              type="monotone"
-              dataKey="amount"
-              stroke="#38bdf8"
-              strokeWidth={2.2}
-              dot={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
+        {chartData.length === 0 ? (
+          <div style={styles.noData}>
+            <p>No transaction data available for this period.</p>
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={chartData}>
+              <CartesianGrid stroke="#1f2937" strokeDasharray="4 4" />
+              <XAxis dataKey="date" tick={{ fill: "#94a3b8" }} />
+              <YAxis tick={{ fill: "#94a3b8" }} />
+              <Tooltip
+                contentStyle={styles.tooltip}
+                formatter={(v) => `₦${v.toLocaleString()}`}
+              />
+              <Line
+                type="monotone"
+                dataKey="amount"
+                stroke="#38bdf8"
+                strokeWidth={2.2}
+                dot={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       {/* Table */}
@@ -248,65 +240,93 @@ export default function TransactionsAnalytics() {
         {filteredTx.length === 0 ? (
           <p style={styles.empty}>No transactions found.</p>
         ) : (
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Type</th>
-                <th style={styles.th}>Amount (₦)</th>
-                <th style={styles.th}>Status</th>
-                <th style={styles.th}>Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredTx.map((t) => (
-                <tr key={t._id} style={styles.tr}>
-                  <td style={styles.td}>{t.type}</td>
-                  <td
-                    style={{
-                      ...styles.td,
-                      color:
-                        t.type === "withdrawal"
-                          ? "#ef4444"
-                          : t.type === "deposit"
-                          ? "#22c55e"
-                          : t.type === "income"
-                          ? "#facc15"
-                          : "#3b82f6",
-                    }}
-                  >
-                    {t.amount.toLocaleString()}
-                  </td>
-                  <td style={styles.td}>{t.status}</td>
-                  <td style={styles.td}>
-                    {new Date(t.createdAt).toLocaleDateString()}
-                  </td>
+          <div style={{ overflowX: "auto" }}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Type</th>
+                  <th style={styles.th}>Amount (₦)</th>
+                  <th style={styles.th}>Status</th>
+                  <th style={styles.th}>Date</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredTx.map((t) => (
+                  <tr key={t._id} style={styles.tr}>
+                    <td style={styles.td}>{t.type}</td>
+                    <td
+                      style={{
+                        ...styles.td,
+                        color:
+                          t.type === "withdrawal"
+                            ? "#ef4444"
+                            : t.type === "deposit"
+                            ? "#22c55e"
+                            : t.type === "income"
+                            ? "#facc15"
+                            : "#3b82f6",
+                      }}
+                    >
+                      {t.amount.toLocaleString()}
+                    </td>
+                    <td style={styles.td}>{t.status}</td>
+                    <td style={styles.td}>
+                      {new Date(t.createdAt).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
+
+      {/* Modal */}
+      {modal.show && (
+        <div style={styles.modalOverlay}>
+          <div
+            style={{
+              ...styles.modal,
+              borderColor:
+                modal.type === "error" ? "#ef4444" : "rgba(34,197,94,0.6)",
+            }}
+          >
+            <h3
+              style={{
+                color: modal.type === "error" ? "#ef4444" : "#22c55e",
+                marginBottom: ".5rem",
+              }}
+            >
+              {modal.type === "error" ? "Error" : "Success"}
+            </h3>
+            <p style={{ color: "#e2e8f0", marginBottom: "1rem" }}>
+              {modal.message}
+            </p>
+            <button
+              style={styles.closeBtn}
+              onClick={() => setModal({ show: false, type: "", message: "" })}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 /* ---------- Styles ---------- */
 const styles = {
-  page: {
-    color: "#e2e8f0",
-    fontFamily: "Inter, sans-serif",
-    padding: "1rem",
-  },
+  page: { color: "#e2e8f0", fontFamily: "Inter, sans-serif", padding: "1rem" },
   title: { fontSize: "1.5rem", fontWeight: 800 },
   subtitle: { color: "#94a3b8", marginBottom: "1.2rem" },
   statsRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "0.8rem",
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+    gap: "1rem",
     marginBottom: "1rem",
   },
   statCard: {
-    flex: "1 1 150px",
     background: "#0b1220",
     border: "2px solid",
     borderRadius: "10px",
@@ -316,9 +336,10 @@ const styles = {
   statValue: { fontSize: "1.3rem", fontWeight: 800, marginTop: "0.3rem" },
   filterRow: {
     display: "flex",
-    gap: "0.8rem",
-    marginBottom: "1rem",
     flexWrap: "wrap",
+    gap: "0.8rem",
+    justifyContent: "space-between",
+    marginBottom: "1rem",
   },
   select: {
     background: "#1e293b",
@@ -327,7 +348,7 @@ const styles = {
     padding: "0.6rem",
     color: "#fff",
   },
-  exportBtns: { marginLeft: "auto", display: "flex", gap: "0.5rem" },
+  exportBtns: { display: "flex", gap: "0.5rem", flexWrap: "wrap" },
   exportBtn: {
     background: "#22c55e",
     color: "#fff",
@@ -353,6 +374,12 @@ const styles = {
     padding: "1rem",
     marginBottom: "1rem",
   },
+  noData: {
+    textAlign: "center",
+    padding: "2rem",
+    color: "#94a3b8",
+    fontStyle: "italic",
+  },
   tableCard: {
     background: "#0b1220",
     border: "1px solid #1f2937",
@@ -377,5 +404,35 @@ const styles = {
     color: "#fff",
   },
   loading: { textAlign: "center", padding: "2rem", color: "#e2e8f0" },
-  error: { textAlign: "center", color: "#ef4444", padding: "2rem" },
+  modalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 9999,
+    padding: "1rem",
+  },
+  modal: {
+    backgroundColor: "#1e293b",
+    borderRadius: "10px",
+    padding: "1.5rem",
+    width: "100%",
+    maxWidth: "400px",
+    textAlign: "center",
+    border: "2px solid rgba(255,255,255,0.1)",
+  },
+  closeBtn: {
+    backgroundColor: "#2563eb",
+    color: "#fff",
+    border: "none",
+    borderRadius: "6px",
+    padding: ".6rem 1.2rem",
+    cursor: "pointer",
+    fontWeight: "600",
+  },
 };
