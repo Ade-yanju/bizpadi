@@ -4,6 +4,7 @@ export default function Maintenance({ message, start, end }) {
   const [remaining, setRemaining] = useState("");
   const [ended, setEnded] = useState(false);
 
+  // ⏳ Countdown timer
   useEffect(() => {
     if (!end) return;
 
@@ -20,16 +21,34 @@ export default function Maintenance({ message, start, end }) {
       const hrs = Math.floor(diff / (1000 * 60 * 60));
       const mins = Math.floor((diff / (1000 * 60)) % 60);
       const secs = Math.floor((diff / 1000) % 60);
-
       setRemaining(`${hrs}h ${mins}m ${secs}s remaining`);
     }, 1000);
 
     return () => clearInterval(interval);
   }, [end]);
 
-  const handleRetry = () => {
-    window.location.reload();
-  };
+  // ✅ Safe animation injection (only runs after DOM loads)
+  useEffect(() => {
+    const sheet = document.styleSheets?.[0];
+    if (sheet && sheet.insertRule) {
+      try {
+        sheet.insertRule(
+          `
+          @keyframes pulse {
+            0% { box-shadow: 0 0 20px rgba(59,130,246,0.1); }
+            50% { box-shadow: 0 0 30px rgba(59,130,246,0.3); }
+            100% { box-shadow: 0 0 20px rgba(59,130,246,0.1); }
+          }
+        `,
+          sheet.cssRules.length
+        );
+      } catch (err) {
+        console.warn("Animation injection skipped:", err.message);
+      }
+    }
+  }, []);
+
+  const handleRetry = () => window.location.reload();
 
   return (
     <div style={styles.wrapper}>
@@ -137,16 +156,3 @@ const styles = {
     marginTop: "1.5rem",
   },
 };
-
-/* Add animation */
-const styleSheet = document.styleSheets[0];
-styleSheet.insertRule(
-  `
-  @keyframes pulse {
-    0% { box-shadow: 0 0 20px rgba(59,130,246,0.1); }
-    50% { box-shadow: 0 0 30px rgba(59,130,246,0.3); }
-    100% { box-shadow: 0 0 20px rgba(59,130,246,0.1); }
-  }
-`,
-  styleSheet.cssRules.length
-);
