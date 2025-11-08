@@ -24,54 +24,55 @@ export default function UserDashboard() {
 
   /* ------------------ FETCH ALL DASHBOARD DATA ------------------ */
   const fetchAll = async () => {
-    try {
-      setLoading(true);
-      const [userRes, walletRes, investRes, txRes, settingsRes] =
-        await Promise.all([
-          axios.get(`${API_BASE}/api/auth/me`, { headers }),
-          axios.get(`${API_BASE}/api/wallet`, { headers }),
-          axios.get(`${API_BASE}/api/investments`, { headers }),
-          axios.get(`${API_BASE}/api/wallet/transactions`, { headers }),
-          axios.get(`${API_BASE}/api/admin/settings/system`, { headers }),
-        ]);
+  try {
+    setLoading(true);
+    const [userRes, walletRes, investRes, txRes, settingsRes] =
+      await Promise.all([
+        axios.get(`${API_BASE}/api/auth/me`, { headers }),
+        axios.get(`${API_BASE}/api/wallet`, { headers }),
+        axios.get(`${API_BASE}/api/investments`, { headers }),
+        axios.get(`${API_BASE}/api/wallet/transactions`, { headers }),
+        axios.get(`${API_BASE}/api/bootstrap/system`), // ✅ changed from /api/admin/settings/system
+      ]);
 
-      const fetchedUser = userRes.data.user;
-      setUser(fetchedUser);
-      setWallet(walletRes.data.wallet);
-      setInvestments(investRes.data.investments || []);
-      setTransactions(txRes.data.transactions || []);
+    const fetchedUser = userRes.data.user;
+    setUser(fetchedUser);
+    setWallet(walletRes.data.wallet);
+    setInvestments(investRes.data.investments || []);
+    setTransactions(txRes.data.transactions || []);
 
-      // save user name globally to sync with profile updates
-      if (fetchedUser?.name) localStorage.setItem("userName", fetchedUser.name);
+    // Save user name globally
+    if (fetchedUser?.name) localStorage.setItem("userName", fetchedUser.name);
 
-      const settingsObj = {};
-      settingsRes.data.forEach((s) => (settingsObj[s.key] = s.value));
-      setSettings(settingsObj);
+    const settingsObj = {};
+    settingsRes.data.forEach((s) => (settingsObj[s.key] = s.value));
+    setSettings(settingsObj);
 
-      setMaintenanceMsg(
-        settingsObj.maintenance_mode
-          ? settingsObj.maintenance_message ||
-              "⚙️ The system is under maintenance."
-          : ""
-      );
-    } catch (err) {
-      console.error("Dashboard load error:", err);
-      if (err.response?.status === 401) {
-        localStorage.clear();
-        navigate("/auth/login");
-      } else {
-        setModal({
-          show: true,
-          type: "error",
-          message:
-            err.response?.data?.message ||
-            "Failed to load dashboard data. Please try again.",
-        });
-      }
-    } finally {
-      setLoading(false);
+    setMaintenanceMsg(
+      settingsObj.maintenance_mode
+        ? settingsObj.maintenance_message ||
+            "⚙️ The system is under maintenance."
+        : ""
+    );
+  } catch (err) {
+    console.error("Dashboard load error:", err);
+    if (err.response?.status === 401) {
+      localStorage.clear();
+      navigate("/auth/login");
+    } else {
+      setModal({
+        show: true,
+        type: "error",
+        message:
+          err.response?.data?.message ||
+          "Failed to load dashboard data. Please try again.",
+      });
     }
-  };
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   useEffect(() => {
     fetchAll();
